@@ -8,6 +8,7 @@ export default function StudentSignup() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [done, setDone] = useState(false);
   const navigate = useNavigate();
 
   const submit = async (e) => {
@@ -15,31 +16,40 @@ export default function StudentSignup() {
     setError("");
     setLoading(true);
 
-    const { data, error: signUpError } = await supabase.auth.signUp({ email, password });
+    const { data, error: signUpError } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { data: { role: "student", invite_code: code.trim().toUpperCase() } },
+    });
     if (signUpError) {
       setError(signUpError.message);
       setLoading(false);
       return;
     }
-    if (!data.session) {
-      setError(
-        "Kayıt oluşturuldu ama e-posta doğrulaması açık görünüyor. Supabase ayarlarından doğrulamayı kapatman ya da e-postanı onaylaman gerekiyor."
-      );
-      setLoading(false);
+
+    if (data.session) {
+      // Oturum hemen açıldı (e-posta onayı kapalı) — App.jsx davet kodunu otomatik kullanır.
+      navigate("/panelim");
       return;
     }
 
-    const { error: redeemError } = await supabase.rpc("redeem_invite", {
-      p_code: code.trim().toUpperCase(),
-    });
-    if (redeemError) {
-      setError(redeemError.message);
-      setLoading(false);
-      return;
-    }
-
-    navigate("/panelim");
+    setLoading(false);
+    setDone(true);
   };
+
+  if (done) {
+    return (
+      <div className="min-h-screen bg-paper flex items-center justify-center px-4">
+        <div className="max-w-sm text-center font-sans">
+          <h2 className="font-display text-xl font-semibold text-ink mb-2">E-postanı kontrol et</h2>
+          <p className="text-sm text-muted">
+            Kayıt onay e-postası gönderildi. Onayladıktan sonra giriş yapıp panelin otomatik açılacak.
+          </p>
+          <Link to="/" className="text-teal text-sm font-medium mt-4 inline-block">Girişe dön →</Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-paper flex items-center justify-center px-4">
