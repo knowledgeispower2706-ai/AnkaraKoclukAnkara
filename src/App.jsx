@@ -25,12 +25,34 @@ export default function App() {
       return;
     }
     (async () => {
-      const { data, error } = await supabase
+      let { data, error } = await supabase
         .from("profiles")
         .select("*")
         .eq("id", session.user.id)
         .maybeSingle();
       if (error) console.error(error);
+
+      // Profil henüz yoksa (e-posta onayı sonrası ilk giriş), kayıt sırasında
+      // user_metadata içine bıraktığımız bilgiyle profili burada otomatik oluştur.
+      if (!data) {
+        const meta = session.user.user_metadata || {};
+        if (meta.role === "coach" && meta.name) {
+          const { error: insertErr } = await supabase
+            .from("profiles")
+            .insert({ id: session.user.id, role: "coach", name: meta.name });
+          if (insertErr) console.error(insertErr);
+          else {
+            ({ data } = await supabase.from("profiles").select("*").eq("id", session.user.id).maybeSingle());
+          }
+        } else if (meta.role === "student" && meta.invite_code) {
+          const { error: rpcErr } = await supabase.rpc("redeem_invite", { p_code: meta.invite_code });
+          if (rpcErr) console.error(rpcErr);
+          else {
+            ({ data } = await supabase.from("profiles").select("*").eq("id", session.user.id).maybeSingle());
+          }
+        }
+      }
+
       setProfile(data || null);
     })();
   }, [session]);
