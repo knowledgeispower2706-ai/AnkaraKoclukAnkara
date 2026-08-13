@@ -15,22 +15,18 @@ export default function CoachSignup() {
     e.preventDefault();
     setError("");
     setLoading(true);
-    const { data, error: signUpError } = await supabase.auth.signUp({ email, password });
+    const { data, error: signUpError } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { data: { role: "coach", name } },
+    });
     if (signUpError) {
       setError(signUpError.message);
       setLoading(false);
       return;
     }
-    // E-posta doğrulaması kapalıysa oturum hemen açılır ve profil oluşturabiliriz.
     if (data.session) {
-      const { error: profileError } = await supabase
-        .from("profiles")
-        .insert({ id: data.user.id, role: "coach", name });
-      if (profileError) {
-        setError(profileError.message);
-        setLoading(false);
-        return;
-      }
+      // Oturum hemen açıldı (e-posta onayı kapalı) — App.jsx profili otomatik oluşturur.
       navigate("/koc");
       return;
     }
