@@ -1,92 +1,33 @@
-import React, { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import React from "react";
+import { LogOut } from "lucide-react";
 import { supabase } from "../supabaseClient";
+import StudentDataView from "../components/StudentDataView.jsx";
 
-export default function StudentSignup() {
-  const [code, setCode] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [done, setDone] = useState(false);
-  const navigate = useNavigate();
-
-  const submit = async (e) => {
-    e.preventDefault();
-    setError("");
-    setLoading(true);
-
-    const { data, error: signUpError } = await supabase.auth.signUp({
-      email,
-      password,
-      options: { data: { role: "student", invite_code: code.trim().toUpperCase() } },
-    });
-    if (signUpError) {
-      setError(signUpError.message);
-      setLoading(false);
-      return;
-    }
-
-    if (data.session) {
-      // Oturum hemen açıldı (e-posta onayı kapalı) — App.jsx davet kodunu otomatik kullanır.
-      navigate("/panelim");
-      return;
-    }
-
-    setLoading(false);
-    setDone(true);
-  };
-
-  if (done) {
-    return (
-      <div className="min-h-screen bg-paper flex items-center justify-center px-4">
-        <div className="max-w-sm text-center font-sans">
-          <h2 className="font-display text-xl font-semibold text-ink mb-2">E-postanı kontrol et</h2>
-          <p className="text-sm text-muted">
-            Kayıt onay e-postası gönderildi. Onayladıktan sonra giriş yapıp panelin otomatik açılacak.
-          </p>
-          <Link to="/" className="text-teal text-sm font-medium mt-4 inline-block">Girişe dön →</Link>
+export default function StudentDashboard({ profile }) {
+  return (
+    <div className="min-h-screen bg-paper">
+      <div className="border-b border-grid bg-white">
+        <div className="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
+          <div>
+            <p className="font-mono text-[11px] text-muted tracking-wide">KOÇLUK PANOSU</p>
+            <h1 className="font-display text-lg font-semibold text-ink">Merhaba, {profile.name}</h1>
+          </div>
+          <button
+            onClick={() => supabase.auth.signOut()}
+            className="text-muted font-sans text-xs flex items-center gap-1.5"
+          >
+            <LogOut size={13} /> Çıkış yap
+          </button>
         </div>
       </div>
-    );
-  }
-
-  return (
-    <div className="min-h-screen bg-paper flex items-center justify-center px-4">
-      <div className="w-full max-w-sm bg-white border border-grid rounded-lg p-8">
-        <h1 className="font-display text-2xl font-semibold text-ink mb-1">Öğrenci Kaydı</h1>
-        <p className="font-sans text-sm text-muted mb-6">Koçundan aldığın davet kodunu gir.</p>
-        <form onSubmit={submit} className="flex flex-col gap-3">
-          <Field label="Davet Kodu" value={code} onChange={setCode} />
-          <Field label="E-posta" type="email" value={email} onChange={setEmail} />
-          <Field label="Şifre" type="password" value={password} onChange={setPassword} />
-          {error && <p className="text-coral text-xs font-sans">{error}</p>}
-          <button
-            disabled={loading}
-            className="bg-ink text-white font-sans font-semibold text-sm rounded-md py-2.5 mt-1 disabled:opacity-60"
-          >
-            {loading ? "Kaydediliyor…" : "Kayıt ol"}
-          </button>
-        </form>
-        <Link to="/" className="font-sans text-sm text-muted mt-5 inline-block">← Girişe dön</Link>
+      <div className="max-w-5xl mx-auto px-6 py-8">
+        <StudentDataView
+          studentId={profile.id}
+          studentName={profile.name}
+          hedef={profile.hedef}
+          canEdit={true}
+        />
       </div>
-    </div>
-  );
-}
-
-function Field({ label, value, onChange, type = "text" }) {
-  return (
-    <div>
-      <label className="font-sans text-xs font-semibold uppercase tracking-wide text-muted block mb-1">
-        {label}
-      </label>
-      <input
-        type={type}
-        required
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full border border-grid rounded-md px-3 py-2 text-sm font-sans outline-none focus:border-teal"
-      />
     </div>
   );
 }
