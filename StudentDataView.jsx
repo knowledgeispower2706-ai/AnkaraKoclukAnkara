@@ -1,16 +1,23 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
   Plus, X, Check, Clock, Award, Target, TrendingUp, BookOpen, MessageSquare,
-  Smile, Meh, Frown,
+  Smile, Meh, Frown, Star, Flame,
 } from "lucide-react";
 import {
-  BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, Legend, Cell,
+  BarChart, Bar, LineChart, Line, AreaChart, Area, RadarChart, Radar,
+  PolarGrid, PolarAngleAxis, PolarRadiusAxis, PieChart, Pie, Cell,
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, ReferenceLine,
 } from "recharts";
 import { supabase } from "../supabaseClient";
 
 const DEFAULT_SUBJECTS = ["Türkçe", "Matematik", "Fen Bilimleri", "Sosyal Bilimler", "İngilizce"];
 const SUBJECT_COLORS = ["#1E6E63", "#E3A21A", "#C1483C", "#3D5A80", "#8A5A44", "#5B7B4F"];
+const EXAM_TYPES = ["TYT", "AYT", "Branş"];
+const PRIORITIES = [
+  { key: "düşük", color: "#6B7686" },
+  { key: "orta", color: "#E3A21A" },
+  { key: "yüksek", color: "#C1483C" },
+];
 const MOODS = [
   { key: "iyi", label: "İyi", icon: Smile, color: "#1E6E63" },
   { key: "notr", label: "Nötr", icon: Meh, color: "#E3A21A" },
@@ -22,6 +29,28 @@ function todayISO() {
 }
 function fmtDate(iso) {
   return new Date(iso + "T00:00:00").toLocaleDateString("tr-TR", { day: "2-digit", month: "short" });
+}
+function subjColor(subject, keys) {
+  const i = keys.indexOf(subject);
+  return SUBJECT_COLORS[(i < 0 ? 0 : i) % SUBJECT_COLORS.length];
+}
+
+// ---------- shared chart styling ----------
+const chartTick = { fontSize: 10.5, fill: "#6B7686" };
+const gridProps = { strokeDasharray: "3 3", stroke: "#E4E9E7", vertical: false };
+function ChartTooltip({ active, payload, label, suffix = "" }) {
+  if (!active || !payload || !payload.length) return null;
+  return (
+    <div className="bg-ink text-white rounded-md px-3 py-2 shadow-lg text-xs font-sans">
+      <div className="font-mono text-[10px] text-[#9AABC2] mb-1">{label}</div>
+      {payload.map((p, i) => (
+        <div key={i} className="flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-full inline-block" style={{ background: p.color || p.fill }} />
+          <span>{p.name}: <b>{p.value}{suffix}</b></span>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 export default function StudentDataView({ studentId, studentName, hedef, canEdit }) {
@@ -56,6 +85,17 @@ export default function StudentDataView({ studentId, studentName, hedef, canEdit
   const weekMinutes = sessions
     .filter((s) => (new Date() - new Date(s.date)) / 86400000 <= 7)
     .reduce((a, s) => a + s.minutes, 0);
+  const streak = useMemo(() => {
+    const days = new Set(sessions.map((s) => s.date));
+    let c = 0;
+    for (let i = 0; i < 60; i++) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      if (days.has(d.toISOString().slice(0, 10))) c++;
+      else if (i > 0) break;
+    }
+    return c;
+  }, [sessions]);
 
   const tabs = [
     { key: "genel", label: "Genel Bakış", icon: TrendingUp },
@@ -72,7 +112,8 @@ export default function StudentDataView({ studentId, studentName, hedef, canEdit
           <h2 className="font-display text-2xl font-semibold text-ink">{studentName}</h2>
           <p className="font-sans text-sm text-muted mt-0.5">{hedef || "Hedef belirtilmedi"}</p>
         </div>
-        <div className="flex gap-5">
+        <div className="flex gap-5 flex-wrap">
+          <Stat icon={Flame} label="Seri" value={`${streak} gün`} />
           <Stat icon={Clock} label="Bu hafta" value={`${Math.round((weekMinutes / 60) * 10) / 10} sa`} />
           <Stat icon={Award} label="Son net" value={lastExam ? lastExam.net : "—"} />
           <Stat icon={Target} label="Aktif hedef" value={goals.filter((g) => !g.done).length} />
@@ -103,7 +144,7 @@ export default function StudentDataView({ studentId, studentName, hedef, canEdit
           <p className="font-sans text-sm text-muted">Yükleniyor…</p>
         ) : (
           <>
-            {tab === "genel" && <Genel sessions={sessions} exams={exams} notes={notes} />}
+            {tab === "genel" && <Genel sessions={sessions} exams={exams} goals={goals} notes={notes} />}
             {tab === "calisma" && (
               <Calisma sessions={sessions} canEdit={canEdit} studentId={studentId} onChange={load} />
             )}
@@ -134,7 +175,8 @@ function Stat({ icon: Icon, label, value }) {
 }
 
 const card = "bg-white border border-grid rounded-lg p-5";
-const cardTitle = "font-display text-base font-semibold text-ink mb-3.5";
+const cardTitle = "font-display text-base font-semibold text-ink mb-1";
+const cardSub = "font-sans text-xs text-muted mb-3.5";
 const input = "w-full border border-grid rounded-md px-3 py-2 text-sm font-sans outline-none focus:border-teal";
 const label = "font-sans text-xs font-semibold uppercase tracking-wide text-muted block mb-1";
 const primaryBtn = "bg-ink text-white font-sans font-semibold text-sm rounded-md px-3.5 py-2 inline-flex items-center gap-1.5 self-start";
@@ -144,7 +186,7 @@ function Empty({ text }) {
 }
 
 // ---------- Genel ----------
-function Genel({ sessions, exams, notes }) {
+function Genel({ sessions, exams, goals, notes }) {
   const last14 = useMemo(() => {
     const days = [];
     for (let i = 13; i >= 0; i--) {
@@ -156,6 +198,7 @@ function Genel({ sessions, exams, notes }) {
     }
     return days;
   }, [sessions]);
+  const avgDaily = last14.length ? Math.round(last14.reduce((a, d) => a + d.dakika, 0) / last14.length) : 0;
 
   const trend = useMemo(() => {
     const byExam = {};
@@ -166,37 +209,115 @@ function Genel({ sessions, exams, notes }) {
     });
     return Object.values(byExam).sort((a, b) => (a.date > b.date ? 1 : -1));
   }, [exams]);
+  const avgNet = trend.length ? Math.round((trend.reduce((a, t) => a + t.net, 0) / trend.length) * 10) / 10 : 0;
+
+  const subjectKeys = useMemo(() => [...new Set(exams.map((e) => e.subject))], [exams]);
+  const radarData = useMemo(() => {
+    return subjectKeys.map((s) => {
+      const recs = exams.filter((e) => e.subject === s);
+      const avg = recs.length ? recs.reduce((a, r) => a + Number(r.net), 0) / recs.length : 0;
+      return { subject: s, net: Math.round(avg * 10) / 10 };
+    });
+  }, [exams, subjectKeys]);
+
+  const distribution = useMemo(() => {
+    const map = {};
+    sessions.forEach((s) => (map[s.subject] = (map[s.subject] || 0) + s.minutes));
+    return Object.entries(map).map(([subject, dakika]) => ({ subject, dakika }));
+  }, [sessions]);
+  const totalMinutes = distribution.reduce((a, d) => a + d.dakika, 0);
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
       <div className={card}>
-        <h3 className={cardTitle}>Son 14 Gün — Çalışma (dk)</h3>
-        <ResponsiveContainer width="100%" height={210}>
-          <BarChart data={last14}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#D7DEDB" />
-            <XAxis dataKey="date" tick={{ fontSize: 10 }} />
-            <YAxis tick={{ fontSize: 10 }} />
-            <Tooltip />
-            <Bar dataKey="dakika" fill="#1E6E63" radius={[3, 3, 0, 0]} />
-          </BarChart>
+        <h3 className={cardTitle}>Son 14 Gün — Çalışma Yoğunluğu</h3>
+        <p className={cardSub}>Günlük ortalama {avgDaily} dakika</p>
+        <ResponsiveContainer width="100%" height={220}>
+          <AreaChart data={last14}>
+            <defs>
+              <linearGradient id="studyGradient" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="#1E6E63" stopOpacity={0.35} />
+                <stop offset="95%" stopColor="#1E6E63" stopOpacity={0.02} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid {...gridProps} />
+            <XAxis dataKey="date" tick={chartTick} axisLine={{ stroke: "#E4E9E7" }} tickLine={false} />
+            <YAxis tick={chartTick} axisLine={false} tickLine={false} width={30} />
+            <Tooltip content={<ChartTooltip suffix=" dk" />} />
+            <ReferenceLine y={avgDaily} stroke="#E3A21A" strokeDasharray="4 4" strokeWidth={1.5} />
+            <Area type="monotone" dataKey="dakika" name="Dakika" stroke="#1E6E63" strokeWidth={2.5} fill="url(#studyGradient)" dot={{ r: 3, fill: "#1E6E63", strokeWidth: 0 }} activeDot={{ r: 5 }} />
+          </AreaChart>
         </ResponsiveContainer>
       </div>
+
       <div className={card}>
         <h3 className={cardTitle}>Toplam Net Gelişimi</h3>
+        <p className={cardSub}>Ortalama net {avgNet}</p>
         {trend.length === 0 ? <Empty text="Henüz deneme sonucu yok." /> : (
-          <ResponsiveContainer width="100%" height={210}>
+          <ResponsiveContainer width="100%" height={220}>
             <LineChart data={trend}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#D7DEDB" />
-              <XAxis dataKey="label" tick={{ fontSize: 10 }} />
-              <YAxis tick={{ fontSize: 10 }} />
-              <Tooltip />
-              <Line type="monotone" dataKey="net" stroke="#E3A21A" strokeWidth={2} dot={{ r: 3 }} />
+              <CartesianGrid {...gridProps} />
+              <XAxis dataKey="label" tick={chartTick} axisLine={{ stroke: "#E4E9E7" }} tickLine={false} />
+              <YAxis tick={chartTick} axisLine={false} tickLine={false} width={30} />
+              <Tooltip content={<ChartTooltip />} />
+              <ReferenceLine y={avgNet} stroke="#C1483C" strokeDasharray="4 4" strokeWidth={1.5} />
+              <Line type="monotone" dataKey="net" name="Net" stroke="#E3A21A" strokeWidth={2.5} dot={{ r: 4, fill: "#E3A21A", strokeWidth: 0 }} activeDot={{ r: 6 }} />
             </LineChart>
           </ResponsiveContainer>
         )}
       </div>
-      <div className={`${card} md:col-span-2`}>
+
+      <div className={card}>
+        <h3 className={cardTitle}>Ders Bazında Güç Analizi</h3>
+        <p className={cardSub}>Derslerin ortalama net değeri</p>
+        {radarData.length < 3 ? <Empty text="Radar grafiği için en az 3 farklı ders sonucu gerekiyor." /> : (
+          <ResponsiveContainer width="100%" height={240}>
+            <RadarChart data={radarData} outerRadius="75%">
+              <PolarGrid stroke="#E4E9E7" />
+              <PolarAngleAxis dataKey="subject" tick={{ fontSize: 11, fill: "#14213D" }} />
+              <PolarRadiusAxis tick={{ fontSize: 9, fill: "#6B7686" }} axisLine={false} />
+              <Radar dataKey="net" stroke="#1E6E63" fill="#1E6E63" fillOpacity={0.25} strokeWidth={2} />
+              <Tooltip content={<ChartTooltip />} />
+            </RadarChart>
+          </ResponsiveContainer>
+        )}
+      </div>
+
+      <div className={card}>
+        <h3 className={cardTitle}>Zaman Dağılımı</h3>
+        <p className={cardSub}>Ders bazında toplam çalışma süresi</p>
+        {distribution.length === 0 ? <Empty text="Henüz çalışma kaydı yok." /> : (
+          <div className="flex items-center gap-4">
+            <ResponsiveContainer width="55%" height={200}>
+              <PieChart>
+                <Pie data={distribution} dataKey="dakika" nameKey="subject" innerRadius={50} outerRadius={78} paddingAngle={2}>
+                  {distribution.map((d, i) => (
+                    <Cell key={i} fill={SUBJECT_COLORS[i % SUBJECT_COLORS.length]} stroke="#fff" strokeWidth={2} />
+                  ))}
+                </Pie>
+                <Tooltip content={<ChartTooltip suffix=" dk" />} />
+              </PieChart>
+            </ResponsiveContainer>
+            <div className="flex flex-col gap-1.5 flex-1">
+              {distribution.map((d, i) => (
+                <div key={i} className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <span className="w-2 h-2 rounded-full shrink-0" style={{ background: SUBJECT_COLORS[i % SUBJECT_COLORS.length] }} />
+                    <span className="font-sans text-xs text-ink truncate">{d.subject}</span>
+                  </div>
+                  <span className="font-mono text-xs text-muted shrink-0">
+                    {totalMinutes ? Math.round((d.dakika / totalMinutes) * 100) : 0}%
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className={`${card} lg:col-span-2`}>
         <h3 className={cardTitle}>Son Notlar</h3>
+        <p className={cardSub}>Koçun en güncel geri bildirimleri</p>
         {notes.length === 0 ? <Empty text="Henüz not yok." /> : (
           <div className="flex flex-col">
             {notes.slice(0, 3).map((n) => {
@@ -223,7 +344,10 @@ function Genel({ sessions, exams, notes }) {
 function Calisma({ sessions, canEdit, studentId, onChange }) {
   const [date, setDate] = useState(todayISO());
   const [subject, setSubject] = useState(DEFAULT_SUBJECTS[0]);
+  const [topic, setTopic] = useState("");
+  const [resource, setResource] = useState("");
   const [minutes, setMinutes] = useState("");
+  const [efficiency, setEfficiency] = useState(3);
   const [note, setNote] = useState("");
 
   const bySubject = useMemo(() => {
@@ -232,12 +356,19 @@ function Calisma({ sessions, canEdit, studentId, onChange }) {
     return Object.entries(map).map(([subject, dakika]) => ({ subject, dakika }));
   }, [sessions]);
 
+  const avgEfficiency = useMemo(() => {
+    const withEff = sessions.filter((s) => s.efficiency);
+    if (!withEff.length) return null;
+    return Math.round((withEff.reduce((a, s) => a + s.efficiency, 0) / withEff.length) * 10) / 10;
+  }, [sessions]);
+
   const add = async () => {
     if (!minutes) return;
     await supabase.from("study_sessions").insert({
-      student_id: studentId, date, subject, minutes: Number(minutes), note,
+      student_id: studentId, date, subject, topic: topic || null, resource: resource || null,
+      minutes: Number(minutes), efficiency, note,
     });
-    setMinutes(""); setNote("");
+    setMinutes(""); setNote(""); setTopic(""); setResource(""); setEfficiency(3);
     onChange();
   };
   const remove = async (id) => {
@@ -246,19 +377,34 @@ function Calisma({ sessions, canEdit, studentId, onChange }) {
   };
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-[320px_1fr] gap-5">
+    <div className="grid grid-cols-1 md:grid-cols-[340px_1fr] gap-5">
       {canEdit && (
         <div className={card}>
           <h3 className={cardTitle}>Çalışma Kaydı Ekle</h3>
+          <p className={cardSub}>Ne çalıştığını olabildiğince detaylı gir</p>
           <div className="flex flex-col gap-3">
-            <div><label className={label}>Tarih</label><input type="date" className={input} value={date} onChange={(e) => setDate(e.target.value)} /></div>
-            <div>
-              <label className={label}>Ders</label>
-              <input list="subjects" className={input} value={subject} onChange={(e) => setSubject(e.target.value)} />
-              <datalist id="subjects">{DEFAULT_SUBJECTS.map((s) => <option key={s} value={s} />)}</datalist>
+            <div className="flex gap-3">
+              <div className="flex-1"><label className={label}>Tarih</label><input type="date" className={input} value={date} onChange={(e) => setDate(e.target.value)} /></div>
+              <div className="flex-1">
+                <label className={label}>Ders</label>
+                <input list="subjects" className={input} value={subject} onChange={(e) => setSubject(e.target.value)} />
+                <datalist id="subjects">{DEFAULT_SUBJECTS.map((s) => <option key={s} value={s} />)}</datalist>
+              </div>
             </div>
+            <div><label className={label}>Konu</label><input className={input} value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="Örn: Türev — Zincir Kuralı" /></div>
+            <div><label className={label}>Kaynak</label><input className={input} value={resource} onChange={(e) => setResource(e.target.value)} placeholder="Örn: 3D Yayınları Soru Bankası" /></div>
             <div><label className={label}>Süre (dakika)</label><input type="number" className={input} value={minutes} onChange={(e) => setMinutes(e.target.value)} /></div>
-            <div><label className={label}>Not</label><input className={input} value={note} onChange={(e) => setNote(e.target.value)} /></div>
+            <div>
+              <label className={label}>Verimlilik</label>
+              <div className="flex gap-1">
+                {[1, 2, 3, 4, 5].map((n) => (
+                  <button key={n} type="button" onClick={() => setEfficiency(n)} className="p-0.5">
+                    <Star size={20} fill={n <= efficiency ? "#E3A21A" : "none"} color={n <= efficiency ? "#E3A21A" : "#D7DEDB"} />
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div><label className={label}>Not</label><input className={input} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Sayfa, zorlanılan yer vb." /></div>
             <button onClick={add} className={primaryBtn}><Plus size={14} /> Ekle</button>
           </div>
         </div>
@@ -266,14 +412,15 @@ function Calisma({ sessions, canEdit, studentId, onChange }) {
       <div className="flex flex-col gap-5">
         <div className={card}>
           <h3 className={cardTitle}>Ders Bazında Toplam Süre</h3>
+          <p className={cardSub}>{avgEfficiency ? `Ortalama verimlilik: ${avgEfficiency} / 5` : "Henüz verimlilik verisi yok"}</p>
           {bySubject.length === 0 ? <Empty text="Henüz kayıt yok." /> : (
             <ResponsiveContainer width="100%" height={190}>
-              <BarChart data={bySubject} layout="vertical">
-                <CartesianGrid strokeDasharray="3 3" stroke="#D7DEDB" />
-                <XAxis type="number" tick={{ fontSize: 10 }} />
-                <YAxis type="category" dataKey="subject" width={100} tick={{ fontSize: 11 }} />
-                <Tooltip />
-                <Bar dataKey="dakika" radius={[0, 3, 3, 0]}>
+              <BarChart data={bySubject} layout="vertical" barSize={16}>
+                <CartesianGrid {...gridProps} horizontal={false} />
+                <XAxis type="number" tick={chartTick} axisLine={false} tickLine={false} />
+                <YAxis type="category" dataKey="subject" width={100} tick={{ fontSize: 11.5, fill: "#14213D" }} axisLine={false} tickLine={false} />
+                <Tooltip content={<ChartTooltip suffix=" dk" />} />
+                <Bar dataKey="dakika" radius={[0, 6, 6, 0]}>
                   {bySubject.map((_, i) => <Cell key={i} fill={SUBJECT_COLORS[i % SUBJECT_COLORS.length]} />)}
                 </Bar>
               </BarChart>
@@ -284,7 +431,13 @@ function Calisma({ sessions, canEdit, studentId, onChange }) {
           <h3 className={cardTitle}>Kayıtlar</h3>
           <Table
             rows={sessions}
-            cols={[{ k: "date", l: "Tarih", r: (r) => fmtDate(r.date) }, { k: "subject", l: "Ders" }, { k: "minutes", l: "Dakika" }, { k: "note", l: "Not" }]}
+            cols={[
+              { k: "date", l: "Tarih", r: (r) => fmtDate(r.date) },
+              { k: "subject", l: "Ders" },
+              { k: "topic", l: "Konu", r: (r) => r.topic || "—" },
+              { k: "minutes", l: "Dk" },
+              { k: "efficiency", l: "Verim", r: (r) => r.efficiency ? "★".repeat(r.efficiency) : "—" },
+            ]}
             onDelete={canEdit ? remove : null}
           />
         </div>
@@ -297,9 +450,11 @@ function Calisma({ sessions, canEdit, studentId, onChange }) {
 function Denemeler({ exams, canEdit, studentId, onChange }) {
   const [date, setDate] = useState(todayISO());
   const [examName, setExamName] = useState("");
+  const [examType, setExamType] = useState("TYT");
   const [subject, setSubject] = useState(DEFAULT_SUBJECTS[0]);
   const [dogru, setDogru] = useState("");
   const [yanlis, setYanlis] = useState("");
+  const [bos, setBos] = useState("");
   const net = dogru !== "" || yanlis !== "" ? Math.round((Number(dogru || 0) - Number(yanlis || 0) / 4) * 100) / 100 : "";
 
   const subjectKeys = useMemo(() => [...new Set(exams.map((e) => e.subject))], [exams]);
@@ -315,12 +470,24 @@ function Denemeler({ exams, canEdit, studentId, onChange }) {
     });
   }, [exams, subjectKeys]);
 
+  const byType = useMemo(() => {
+    const map = {};
+    exams.forEach((e) => {
+      const t = e.exam_type || "TYT";
+      if (!map[t]) map[t] = { count: 0, totalNet: 0 };
+      map[t].count += 1;
+      map[t].totalNet += Number(e.net);
+    });
+    return map;
+  }, [exams]);
+
   const add = async () => {
     if (!examName || net === "") return;
     await supabase.from("exam_results").insert({
-      student_id: studentId, date, exam_name: examName, subject, dogru: Number(dogru || 0), yanlis: Number(yanlis || 0), net,
+      student_id: studentId, date, exam_name: examName, exam_type: examType, subject,
+      dogru: Number(dogru || 0), yanlis: Number(yanlis || 0), bos: Number(bos || 0), net,
     });
-    setDogru(""); setYanlis("");
+    setDogru(""); setYanlis(""); setBos("");
     onChange();
   };
   const remove = async (id) => {
@@ -329,21 +496,31 @@ function Denemeler({ exams, canEdit, studentId, onChange }) {
   };
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-[320px_1fr] gap-5">
+    <div className="grid grid-cols-1 md:grid-cols-[340px_1fr] gap-5">
       {canEdit && (
         <div className={card}>
           <h3 className={cardTitle}>Deneme Sonucu Ekle</h3>
+          <p className={cardSub}>Doğru/yanlış/boş girildikçe net otomatik hesaplanır</p>
           <div className="flex flex-col gap-3">
-            <div><label className={label}>Tarih</label><input type="date" className={input} value={date} onChange={(e) => setDate(e.target.value)} /></div>
+            <div className="flex gap-3">
+              <div className="flex-1"><label className={label}>Tarih</label><input type="date" className={input} value={date} onChange={(e) => setDate(e.target.value)} /></div>
+              <div className="flex-1">
+                <label className={label}>Tür</label>
+                <select className={input} value={examType} onChange={(e) => setExamType(e.target.value)}>
+                  {EXAM_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+            </div>
             <div><label className={label}>Deneme Adı</label><input className={input} value={examName} onChange={(e) => setExamName(e.target.value)} placeholder="Örn: 3D TYT Deneme 5" /></div>
             <div>
               <label className={label}>Ders</label>
               <input list="subjects2" className={input} value={subject} onChange={(e) => setSubject(e.target.value)} />
               <datalist id="subjects2">{DEFAULT_SUBJECTS.map((s) => <option key={s} value={s} />)}</datalist>
             </div>
-            <div className="flex gap-3">
+            <div className="flex gap-2">
               <div className="flex-1"><label className={label}>Doğru</label><input type="number" className={input} value={dogru} onChange={(e) => setDogru(e.target.value)} /></div>
               <div className="flex-1"><label className={label}>Yanlış</label><input type="number" className={input} value={yanlis} onChange={(e) => setYanlis(e.target.value)} /></div>
+              <div className="flex-1"><label className={label}>Boş</label><input type="number" className={input} value={bos} onChange={(e) => setBos(e.target.value)} /></div>
             </div>
             <div className="font-mono text-sm text-teal">Net: {net === "" ? "—" : net}</div>
             <button onClick={add} className={primaryBtn}><Plus size={14} /> Ekle</button>
@@ -351,18 +528,29 @@ function Denemeler({ exams, canEdit, studentId, onChange }) {
         </div>
       )}
       <div className="flex flex-col gap-5">
+        {Object.keys(byType).length > 0 && (
+          <div className="grid grid-cols-3 gap-3">
+            {Object.entries(byType).map(([t, v]) => (
+              <div key={t} className={`${card} p-4`}>
+                <div className="font-sans text-[11px] text-muted uppercase tracking-wide">{t}</div>
+                <div className="font-display text-xl font-semibold text-ink mt-0.5">{v.count} deneme</div>
+                <div className="font-mono text-xs text-teal mt-0.5">Ort. net {Math.round((v.totalNet / v.count) * 10) / 10}</div>
+              </div>
+            ))}
+          </div>
+        )}
         <div className={card}>
           <h3 className={cardTitle}>Ders Bazında Net Trendi</h3>
           {trend.length === 0 ? <Empty text="Henüz deneme sonucu yok." /> : (
-            <ResponsiveContainer width="100%" height={210}>
+            <ResponsiveContainer width="100%" height={230}>
               <LineChart data={trend}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#D7DEDB" />
-                <XAxis dataKey="examName" tick={{ fontSize: 10 }} />
-                <YAxis tick={{ fontSize: 10 }} />
-                <Tooltip />
-                <Legend wrapperStyle={{ fontSize: 11 }} />
+                <CartesianGrid {...gridProps} />
+                <XAxis dataKey="examName" tick={chartTick} axisLine={{ stroke: "#E4E9E7" }} tickLine={false} />
+                <YAxis tick={chartTick} axisLine={false} tickLine={false} width={30} />
+                <Tooltip content={<ChartTooltip />} />
+                <Legend wrapperStyle={{ fontSize: 11.5, fontFamily: "inherit" }} iconType="circle" iconSize={8} />
                 {subjectKeys.map((s, i) => (
-                  <Line key={s} type="monotone" dataKey={s} stroke={SUBJECT_COLORS[i % SUBJECT_COLORS.length]} strokeWidth={2} dot={{ r: 3 }} connectNulls />
+                  <Line key={s} type="monotone" dataKey={s} stroke={SUBJECT_COLORS[i % SUBJECT_COLORS.length]} strokeWidth={2.5} dot={{ r: 3.5 }} activeDot={{ r: 5.5 }} connectNulls />
                 ))}
               </LineChart>
             </ResponsiveContainer>
@@ -372,7 +560,14 @@ function Denemeler({ exams, canEdit, studentId, onChange }) {
           <h3 className={cardTitle}>Kayıtlar</h3>
           <Table
             rows={exams}
-            cols={[{ k: "date", l: "Tarih", r: (r) => fmtDate(r.date) }, { k: "exam_name", l: "Deneme" }, { k: "subject", l: "Ders" }, { k: "net", l: "Net" }]}
+            cols={[
+              { k: "date", l: "Tarih", r: (r) => fmtDate(r.date) },
+              { k: "exam_name", l: "Deneme" },
+              { k: "exam_type", l: "Tür", r: (r) => r.exam_type || "TYT" },
+              { k: "subject", l: "Ders" },
+              { k: "dyb", l: "D/Y/B", r: (r) => `${r.dogru}/${r.yanlis}/${r.bos || 0}` },
+              { k: "net", l: "Net" },
+            ]}
             onDelete={canEdit ? remove : null}
           />
         </div>
@@ -384,12 +579,14 @@ function Denemeler({ exams, canEdit, studentId, onChange }) {
 // ---------- Hedefler ----------
 function Hedefler({ goals, canEdit, studentId, onChange }) {
   const [title, setTitle] = useState("");
+  const [subject, setSubject] = useState("");
+  const [priority, setPriority] = useState("orta");
   const [due, setDue] = useState("");
 
   const add = async () => {
     if (!title) return;
-    await supabase.from("goals").insert({ student_id: studentId, title, due: due || null });
-    setTitle(""); setDue("");
+    await supabase.from("goals").insert({ student_id: studentId, title, due: due || null, subject: subject || null, priority });
+    setTitle(""); setDue(""); setSubject(""); setPriority("orta");
     onChange();
   };
   const toggle = async (g) => {
@@ -401,15 +598,32 @@ function Hedefler({ goals, canEdit, studentId, onChange }) {
     onChange();
   };
 
-  const sorted = [...goals].sort((a, b) => Number(a.done) - Number(b.done));
+  const priorityOrder = { yüksek: 0, orta: 1, düşük: 2 };
+  const sorted = [...goals].sort((a, b) => {
+    if (a.done !== b.done) return Number(a.done) - Number(b.done);
+    return (priorityOrder[a.priority] ?? 1) - (priorityOrder[b.priority] ?? 1);
+  });
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-[320px_1fr] gap-5">
+    <div className="grid grid-cols-1 md:grid-cols-[340px_1fr] gap-5">
       {canEdit && (
         <div className={card}>
           <h3 className={cardTitle}>Hedef / Görev Ekle</h3>
           <div className="flex flex-col gap-3">
-            <div><label className={label}>Başlık</label><input className={input} value={title} onChange={(e) => setTitle(e.target.value)} /></div>
+            <div><label className={label}>Başlık</label><input className={input} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Örn: 50 türev sorusu çöz" /></div>
+            <div className="flex gap-3">
+              <div className="flex-1">
+                <label className={label}>Ders (opsiyonel)</label>
+                <input list="subjects3" className={input} value={subject} onChange={(e) => setSubject(e.target.value)} />
+                <datalist id="subjects3">{DEFAULT_SUBJECTS.map((s) => <option key={s} value={s} />)}</datalist>
+              </div>
+              <div className="flex-1">
+                <label className={label}>Öncelik</label>
+                <select className={input} value={priority} onChange={(e) => setPriority(e.target.value)}>
+                  {PRIORITIES.map((p) => <option key={p.key} value={p.key}>{p.key}</option>)}
+                </select>
+              </div>
+            </div>
             <div><label className={label}>Hedef Tarih</label><input type="date" className={input} value={due} onChange={(e) => setDue(e.target.value)} /></div>
             <button onClick={add} className={primaryBtn}><Plus size={14} /> Ekle</button>
           </div>
@@ -419,26 +633,37 @@ function Hedefler({ goals, canEdit, studentId, onChange }) {
         <h3 className={cardTitle}>Hedef Listesi</h3>
         {sorted.length === 0 ? <Empty text="Henüz hedef yok." /> : (
           <div className="flex flex-col gap-2">
-            {sorted.map((g) => (
-              <div key={g.id} className={`flex items-center justify-between px-3 py-2.5 rounded-md border border-grid ${g.done ? "bg-[#F0F4F2]" : "bg-white"}`}>
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={() => canEdit && toggle(g)}
-                    className="w-5 h-5 rounded-[5px] flex items-center justify-center border"
-                    style={{ borderColor: g.done ? "#1E6E63" : "#D7DEDB", background: g.done ? "#1E6E63" : "transparent" }}
-                  >
-                    {g.done && <Check size={13} color="#fff" />}
-                  </button>
-                  <div>
-                    <div className={`font-sans text-sm ${g.done ? "text-muted line-through" : "text-ink"}`}>{g.title}</div>
-                    {g.due && <div className="font-mono text-[11px] text-muted">{fmtDate(g.due)}</div>}
+            {sorted.map((g) => {
+              const pr = PRIORITIES.find((p) => p.key === g.priority) || PRIORITIES[1];
+              return (
+                <div key={g.id} className={`flex items-center justify-between px-3 py-2.5 rounded-md border border-grid ${g.done ? "bg-[#F0F4F2]" : "bg-white"}`}>
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => canEdit && toggle(g)}
+                      className="w-5 h-5 rounded-[5px] flex items-center justify-center border shrink-0"
+                      style={{ borderColor: g.done ? "#1E6E63" : "#D7DEDB", background: g.done ? "#1E6E63" : "transparent" }}
+                    >
+                      {g.done && <Check size={13} color="#fff" />}
+                    </button>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className={`font-sans text-sm ${g.done ? "text-muted line-through" : "text-ink"}`}>{g.title}</span>
+                        {!g.done && (
+                          <span className="font-sans text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: `${pr.color}18`, color: pr.color }}>{g.priority}</span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        {g.subject && <span className="font-mono text-[11px] text-teal">{g.subject}</span>}
+                        {g.due && <span className="font-mono text-[11px] text-muted">{fmtDate(g.due)}</span>}
+                      </div>
+                    </div>
                   </div>
+                  {canEdit && (
+                    <button onClick={() => remove(g.id)} className="text-muted shrink-0"><X size={14} /></button>
+                  )}
                 </div>
-                {canEdit && (
-                  <button onClick={() => remove(g.id)} className="text-muted"><X size={14} /></button>
-                )}
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -463,7 +688,7 @@ function Notlar({ notes, canEdit, studentId, onChange }) {
   };
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-[320px_1fr] gap-5">
+    <div className="grid grid-cols-1 md:grid-cols-[340px_1fr] gap-5">
       {canEdit && (
         <div className={card}>
           <h3 className={cardTitle}>Not / Geri Bildirim Ekle</h3>
