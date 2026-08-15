@@ -10,8 +10,16 @@ import {
 } from "recharts";
 import { supabase } from "../supabaseClient";
 
-const DEFAULT_SUBJECTS = ["Türkçe", "Matematik", "Fen Bilimleri", "Sosyal Bilimler", "İngilizce"];
-const SUBJECT_COLORS = ["#1E6E63", "#E3A21A", "#C1483C", "#3D5A80", "#8A5A44", "#5B7B4F"];
+const DEFAULT_SUBJECTS = [
+  "Türkçe", "Matematik",
+  "Fizik", "Kimya", "Biyoloji",
+  "Tarih", "Coğrafya", "Felsefe", "Din Kültürü ve Ahlak Bilgisi",
+  "İngilizce",
+];
+const SUBJECT_COLORS = [
+  "#1E6E63", "#E3A21A", "#C1483C", "#3D5A80", "#8A5A44", "#5B7B4F",
+  "#7A4E8C", "#B0762C", "#2E7DA6", "#A64E6B",
+];
 const EXAM_TYPES = ["TYT", "AYT", "Branş"];
 const PRIORITIES = [
   { key: "düşük", color: "#6B7686" },
