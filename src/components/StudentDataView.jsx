@@ -9,9 +9,18 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, ReferenceLine,
 } from "recharts";
 import { supabase } from "../supabaseClient";
+import Avatar from "./Avatar.jsx";
 
-const DEFAULT_SUBJECTS = ["Türkçe", "Matematik", "Fen Bilimleri", "Sosyal Bilimler", "İngilizce"];
-const SUBJECT_COLORS = ["#1E6E63", "#E3A21A", "#C1483C", "#3D5A80", "#8A5A44", "#5B7B4F"];
+const DEFAULT_SUBJECTS = [
+  "Türkçe", "Matematik",
+  "Fizik", "Kimya", "Biyoloji",
+  "Tarih", "Coğrafya", "Felsefe", "Din Kültürü ve Ahlak Bilgisi",
+  "İngilizce",
+];
+const SUBJECT_COLORS = [
+  "#1E6E63", "#E3A21A", "#C1483C", "#3D5A80", "#8A5A44", "#5B7B4F",
+  "#7A4E8C", "#B0762C", "#2E7DA6", "#A64E6B",
+];
 const EXAM_TYPES = ["TYT", "AYT", "Branş"];
 const PRIORITIES = [
   { key: "düşük", color: "#6B7686" },
@@ -107,17 +116,30 @@ export default function StudentDataView({ studentId, studentName, hedef, canEdit
 
   return (
     <div>
-      <div className="bg-white border border-grid rounded-lg p-5 flex items-center justify-between gap-4 flex-wrap">
-        <div>
-          <h2 className="font-display text-2xl font-semibold text-ink">{studentName}</h2>
-          <p className="font-sans text-sm text-muted mt-0.5">{hedef || "Hedef belirtilmedi"}</p>
+      <div
+        className="rounded-xl p-6 flex items-center justify-between gap-4 flex-wrap relative overflow-hidden"
+        style={{ background: "linear-gradient(120deg, #14213D 0%, #1B2E52 55%, #123B39 100%)" }}
+      >
+        <div
+          className="absolute rounded-full pointer-events-none"
+          style={{ width: 220, height: 220, top: -80, right: 40, background: "#E3A21A", opacity: 0.18, filter: "blur(60px)" }}
+        />
+        <div
+          className="absolute rounded-full pointer-events-none"
+          style={{ width: 180, height: 180, bottom: -90, left: 60, background: "#1E9E8A", opacity: 0.22, filter: "blur(60px)" }}
+        />
+        <div className="relative flex items-center gap-4">
+          <Avatar name={studentName} size={52} ring />
+          <div>
+            <h2 className="font-display text-2xl font-semibold text-white">{studentName}</h2>
+            <p className="font-sans text-sm text-[#C7D3E6] mt-0.5">{hedef || "Hedef belirtilmedi"}</p>
+          </div>
         </div>
-        <div className="flex gap-5 flex-wrap">
-          <Stat icon={Flame} label="Seri" value={`${streak} gün`} />
-          <Stat icon={Clock} label="Bu hafta" value={`${Math.round((weekMinutes / 60) * 10) / 10} sa`} />
-          <Stat icon={Award} label="Son net" value={lastExam ? lastExam.net : "—"} />
-          <Stat icon={Target} label="Aktif hedef" value={goals.filter((g) => !g.done).length} />
-          <Stat icon={Check} label="Hedef %" value={`${goalPct}%`} />
+        <div className="relative flex gap-2.5 flex-wrap">
+          <HeroStat icon={Flame} label="Seri" value={`${streak} gün`} color="#FF8C7A" />
+          <HeroStat icon={Clock} label="Bu hafta" value={`${Math.round((weekMinutes / 60) * 10) / 10} sa`} color="#5CC9B0" />
+          <HeroStat icon={Award} label="Son net" value={lastExam ? lastExam.net : "—"} color="#FFB84D" />
+          <HeroStat icon={Target} label="Hedef" value={`${goalPct}%`} color="#8CB3FF" />
         </div>
       </div>
 
@@ -170,6 +192,23 @@ function Stat({ icon: Icon, label, value }) {
       <Icon size={13} className="text-teal" />
       <span className="font-sans text-[11px] text-muted">{label}</span>
       <span className="font-mono text-sm font-semibold text-ink">{value}</span>
+    </div>
+  );
+}
+
+function HeroStat({ icon: Icon, label, value, color }) {
+  return (
+    <div
+      className="flex items-center gap-2 px-3 py-2 rounded-lg"
+      style={{ background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.12)" }}
+    >
+      <div className="w-7 h-7 rounded-md flex items-center justify-center shrink-0" style={{ background: `${color}2A` }}>
+        <Icon size={13} color={color} />
+      </div>
+      <div>
+        <div className="font-sans text-[10px] text-[#B7C2D6] leading-none">{label}</div>
+        <div className="font-mono text-sm font-semibold text-white leading-tight mt-0.5">{value}</div>
+      </div>
     </div>
   );
 }
