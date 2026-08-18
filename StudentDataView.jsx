@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
   Plus, X, Check, Clock, Award, Target, TrendingUp, BookOpen, MessageSquare,
-  Smile, Meh, Frown, Star, Flame,
+  Smile, Meh, Frown, Star, Flame, ListChecks, ChevronDown, Circle, CircleDot, CircleCheck,
 } from "lucide-react";
 import {
   BarChart, Bar, LineChart, Line, AreaChart, Area, RadarChart, Radar,
@@ -9,6 +9,8 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, ReferenceLine,
 } from "recharts";
 import { supabase } from "../supabaseClient";
+import Avatar from "./Avatar.jsx";
+import { CURRICULUM } from "../data/curriculum.js";
 
 const DEFAULT_SUBJECTS = [
   "Türkçe", "Matematik",
@@ -43,6 +45,17 @@ function subjColor(subject, keys) {
   return SUBJECT_COLORS[(i < 0 ? 0 : i) % SUBJECT_COLORS.length];
 }
 
+const TOTAL_TOPICS = Object.values(CURRICULUM).reduce(
+  (a, subjMap) => a + Object.values(subjMap).reduce((b, list) => b + list.length, 0),
+  0
+);
+const STATUS_STEPS = ["bekliyor", "devam", "tamam"];
+const STATUS_META = {
+  bekliyor: { color: "#D7DEDB", label: "Bekliyor", icon: Circle },
+  devam: { color: "#E3A21A", label: "Devam ediyor", icon: CircleDot },
+  tamam: { color: "#1E6E63", label: "Tamamlandı", icon: CircleCheck },
+};
+
 // ---------- shared chart styling ----------
 const chartTick = { fontSize: 10.5, fill: "#6B7686" };
 const gridProps = { strokeDasharray: "3 3", stroke: "#E4E9E7", vertical: false };
@@ -67,20 +80,23 @@ export default function StudentDataView({ studentId, studentName, hedef, canEdit
   const [exams, setExams] = useState([]);
   const [goals, setGoals] = useState([]);
   const [notes, setNotes] = useState([]);
+  const [topics, setTopics] = useState([]); // topic_progress rows
   const [loading, setLoading] = useState(true);
 
   const load = async () => {
     setLoading(true);
-    const [s, e, g, n] = await Promise.all([
+    const [s, e, g, n, t] = await Promise.all([
       supabase.from("study_sessions").select("*").eq("student_id", studentId).order("date", { ascending: false }),
       supabase.from("exam_results").select("*").eq("student_id", studentId).order("date", { ascending: false }),
       supabase.from("goals").select("*").eq("student_id", studentId).order("created_at", { ascending: false }),
       supabase.from("notes").select("*").eq("student_id", studentId).order("date", { ascending: false }),
+      supabase.from("topic_progress").select("*").eq("student_id", studentId),
     ]);
     setSessions(s.data || []);
     setExams(e.data || []);
     setGoals(g.data || []);
     setNotes(n.data || []);
+    setTopics(t.data || []);
     setLoading(false);
   };
 
@@ -104,28 +120,48 @@ export default function StudentDataView({ studentId, studentName, hedef, canEdit
     }
     return c;
   }, [sessions]);
+  const curriculumPct = useMemo(() => {
+    if (!TOTAL_TOPICS) return 0;
+    const done = topics.filter((t) => t.status === "tamam").length;
+    return Math.round((done / TOTAL_TOPICS) * 100);
+  }, [topics]);
 
   const tabs = [
     { key: "genel", label: "Genel Bakış", icon: TrendingUp },
     { key: "calisma", label: "Çalışma", icon: BookOpen },
     { key: "denemeler", label: "Denemeler", icon: Award },
+    { key: "mufredat", label: "Müfredat", icon: ListChecks },
     { key: "hedefler", label: "Hedefler", icon: Target },
     { key: "notlar", label: "Notlar", icon: MessageSquare },
   ];
 
   return (
     <div>
-      <div className="bg-white border border-grid rounded-lg p-5 flex items-center justify-between gap-4 flex-wrap">
-        <div>
-          <h2 className="font-display text-2xl font-semibold text-ink">{studentName}</h2>
-          <p className="font-sans text-sm text-muted mt-0.5">{hedef || "Hedef belirtilmedi"}</p>
+      <div
+        className="rounded-xl p-6 flex items-center justify-between gap-4 flex-wrap relative overflow-hidden"
+        style={{ background: "linear-gradient(120deg, #14213D 0%, #1B2E52 55%, #123B39 100%)" }}
+      >
+        <div
+          className="absolute rounded-full pointer-events-none"
+          style={{ width: 220, height: 220, top: -80, right: 40, background: "#E3A21A", opacity: 0.18, filter: "blur(60px)" }}
+        />
+        <div
+          className="absolute rounded-full pointer-events-none"
+          style={{ width: 180, height: 180, bottom: -90, left: 60, background: "#1E9E8A", opacity: 0.22, filter: "blur(60px)" }}
+        />
+        <div className="relative flex items-center gap-4">
+          <Avatar name={studentName} size={52} ring />
+          <div>
+            <h2 className="font-display text-2xl font-semibold text-white">{studentName}</h2>
+            <p className="font-sans text-sm text-[#C7D3E6] mt-0.5">{hedef || "Hedef belirtilmedi"}</p>
+          </div>
         </div>
-        <div className="flex gap-5 flex-wrap">
-          <Stat icon={Flame} label="Seri" value={`${streak} gün`} />
-          <Stat icon={Clock} label="Bu hafta" value={`${Math.round((weekMinutes / 60) * 10) / 10} sa`} />
-          <Stat icon={Award} label="Son net" value={lastExam ? lastExam.net : "—"} />
-          <Stat icon={Target} label="Aktif hedef" value={goals.filter((g) => !g.done).length} />
-          <Stat icon={Check} label="Hedef %" value={`${goalPct}%`} />
+        <div className="relative flex gap-2.5 flex-wrap">
+          <HeroStat icon={Flame} label="Seri" value={`${streak} gün`} color="#FF8C7A" />
+          <HeroStat icon={Clock} label="Bu hafta" value={`${Math.round((weekMinutes / 60) * 10) / 10} sa`} color="#5CC9B0" />
+          <HeroStat icon={Award} label="Son net" value={lastExam ? lastExam.net : "—"} color="#FFB84D" />
+          <HeroStat icon={ListChecks} label="Müfredat" value={`${curriculumPct}%`} color="#B99CD4" />
+          <HeroStat icon={Target} label="Hedef" value={`${goalPct}%`} color="#8CB3FF" />
         </div>
       </div>
 
@@ -152,12 +188,15 @@ export default function StudentDataView({ studentId, studentName, hedef, canEdit
           <p className="font-sans text-sm text-muted">Yükleniyor…</p>
         ) : (
           <>
-            {tab === "genel" && <Genel sessions={sessions} exams={exams} goals={goals} notes={notes} />}
+            {tab === "genel" && <Genel sessions={sessions} exams={exams} goals={goals} notes={notes} topics={topics} curriculumPct={curriculumPct} />}
             {tab === "calisma" && (
               <Calisma sessions={sessions} canEdit={canEdit} studentId={studentId} onChange={load} />
             )}
             {tab === "denemeler" && (
               <Denemeler exams={exams} canEdit={canEdit} studentId={studentId} onChange={load} />
+            )}
+            {tab === "mufredat" && (
+              <Mufredat topics={topics} canEdit={canEdit} studentId={studentId} onChange={load} />
             )}
             {tab === "hedefler" && (
               <Hedefler goals={goals} canEdit={canEdit} studentId={studentId} onChange={load} />
@@ -182,6 +221,23 @@ function Stat({ icon: Icon, label, value }) {
   );
 }
 
+function HeroStat({ icon: Icon, label, value, color }) {
+  return (
+    <div
+      className="flex items-center gap-2 px-3 py-2 rounded-lg"
+      style={{ background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.12)" }}
+    >
+      <div className="w-7 h-7 rounded-md flex items-center justify-center shrink-0" style={{ background: `${color}2A` }}>
+        <Icon size={13} color={color} />
+      </div>
+      <div>
+        <div className="font-sans text-[10px] text-[#B7C2D6] leading-none">{label}</div>
+        <div className="font-mono text-sm font-semibold text-white leading-tight mt-0.5">{value}</div>
+      </div>
+    </div>
+  );
+}
+
 const card = "bg-white border border-grid rounded-lg p-5";
 const cardTitle = "font-display text-base font-semibold text-ink mb-1";
 const cardSub = "font-sans text-xs text-muted mb-3.5";
@@ -194,7 +250,7 @@ function Empty({ text }) {
 }
 
 // ---------- Genel ----------
-function Genel({ sessions, exams, goals, notes }) {
+function Genel({ sessions, exams, goals, notes, topics, curriculumPct }) {
   const last14 = useMemo(() => {
     const days = [];
     for (let i = 13; i >= 0; i--) {
@@ -235,8 +291,52 @@ function Genel({ sessions, exams, goals, notes }) {
   }, [sessions]);
   const totalMinutes = distribution.reduce((a, d) => a + d.dakika, 0);
 
+  const weekly = useMemo(() => {
+    const weeks = [];
+    for (let w = 7; w >= 0; w--) {
+      const end = new Date();
+      end.setDate(end.getDate() - w * 7);
+      const start = new Date(end);
+      start.setDate(start.getDate() - 6);
+      const mins = sessions
+        .filter((s) => {
+          const d = new Date(s.date);
+          return d >= start && d <= end;
+        })
+        .reduce((a, s) => a + s.minutes, 0);
+      weeks.push({ label: `${start.getDate()}/${start.getMonth() + 1}`, saat: Math.round((mins / 60) * 10) / 10 });
+    }
+    return weeks;
+  }, [sessions]);
+
+  const curriculumByType = useMemo(() => {
+    return Object.keys(CURRICULUM).map((examType) => {
+      const total = Object.values(CURRICULUM[examType]).reduce((a, l) => a + l.length, 0);
+      const done = topics.filter((t) => t.exam_type === examType && t.status === "tamam").length;
+      return { examType, pct: total ? Math.round((done / total) * 100) : 0, done, total };
+    });
+  }, [topics]);
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+      <div className={`${card} lg:col-span-2`}>
+        <h3 className={cardTitle}>Müfredat İlerlemesi</h3>
+        <p className={cardSub}>TYT ve AYT kapsamındaki konuların tamamlanma durumu — genel {curriculumPct}%</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {curriculumByType.map((c) => (
+            <div key={c.examType}>
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="font-sans text-sm font-semibold text-ink">{c.examType}</span>
+                <span className="font-mono text-xs text-muted">{c.done}/{c.total} konu — %{c.pct}</span>
+              </div>
+              <div className="h-2 rounded-full bg-[#EEF1F0] overflow-hidden">
+                <div className="h-full rounded-full" style={{ width: `${c.pct}%`, background: c.examType === "TYT" ? "#1E6E63" : "#E3A21A" }} />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
       <div className={card}>
         <h3 className={cardTitle}>Son 14 Gün — Çalışma Yoğunluğu</h3>
         <p className={cardSub}>Günlük ortalama {avgDaily} dakika</p>
@@ -255,6 +355,20 @@ function Genel({ sessions, exams, goals, notes }) {
             <ReferenceLine y={avgDaily} stroke="#E3A21A" strokeDasharray="4 4" strokeWidth={1.5} />
             <Area type="monotone" dataKey="dakika" name="Dakika" stroke="#1E6E63" strokeWidth={2.5} fill="url(#studyGradient)" dot={{ r: 3, fill: "#1E6E63", strokeWidth: 0 }} activeDot={{ r: 5 }} />
           </AreaChart>
+        </ResponsiveContainer>
+      </div>
+
+      <div className={card}>
+        <h3 className={cardTitle}>Haftalık Çalışma Karşılaştırması</h3>
+        <p className={cardSub}>Son 8 haftanın toplam çalışma süresi</p>
+        <ResponsiveContainer width="100%" height={220}>
+          <BarChart data={weekly}>
+            <CartesianGrid {...gridProps} />
+            <XAxis dataKey="label" tick={chartTick} axisLine={{ stroke: "#E4E9E7" }} tickLine={false} />
+            <YAxis tick={chartTick} axisLine={false} tickLine={false} width={30} />
+            <Tooltip content={<ChartTooltip suffix=" sa" />} />
+            <Bar dataKey="saat" name="Saat" fill="#3D5A80" radius={[6, 6, 0, 0]} />
+          </BarChart>
         </ResponsiveContainer>
       </div>
 
@@ -743,6 +857,112 @@ function Notlar({ notes, canEdit, studentId, onChange }) {
             })}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ---------- Müfredat ----------
+function Mufredat({ topics, canEdit, studentId, onChange }) {
+  const [examType, setExamType] = useState("TYT");
+  const [openSubject, setOpenSubject] = useState(null);
+
+  const statusMap = useMemo(() => {
+    const map = {};
+    topics.forEach((t) => {
+      map[`${t.exam_type}|${t.subject}|${t.topic}`] = t.status;
+    });
+    return map;
+  }, [topics]);
+
+  const cycle = async (subject, topic) => {
+    if (!canEdit) return;
+    const key = `${examType}|${subject}|${topic}`;
+    const current = statusMap[key] || "bekliyor";
+    const next = STATUS_STEPS[(STATUS_STEPS.indexOf(current) + 1) % STATUS_STEPS.length];
+    await supabase.from("topic_progress").upsert(
+      { student_id: studentId, exam_type: examType, subject, topic, status: next, updated_at: new Date().toISOString() },
+      { onConflict: "student_id,exam_type,subject,topic" }
+    );
+    onChange();
+  };
+
+  const subjects = Object.keys(CURRICULUM[examType]);
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-4">
+        {Object.keys(CURRICULUM).map((t) => (
+          <button
+            key={t}
+            onClick={() => setExamType(t)}
+            className={`px-4 py-1.5 rounded-full font-sans text-sm font-semibold border ${
+              examType === t ? "bg-ink text-white border-ink" : "bg-white text-muted border-grid"
+            }`}
+          >
+            {t}
+          </button>
+        ))}
+        <div className="flex items-center gap-3 ml-auto font-sans text-[11px] text-muted">
+          {STATUS_STEPS.map((s) => {
+            const meta = STATUS_META[s];
+            const Icon = meta.icon;
+            return (
+              <span key={s} className="flex items-center gap-1">
+                <Icon size={12} color={meta.color} /> {meta.label}
+              </span>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-3">
+        {subjects.map((subject) => {
+          const list = CURRICULUM[examType][subject];
+          const doneCount = list.filter((topic) => statusMap[`${examType}|${subject}|${topic}`] === "tamam").length;
+          const pct = Math.round((doneCount / list.length) * 100);
+          const isOpen = openSubject === subject;
+          const color = subjColor(subject, subjects);
+          return (
+            <div key={subject} className={card}>
+              <button
+                onClick={() => setOpenSubject(isOpen ? null : subject)}
+                className="w-full flex items-center justify-between gap-3"
+              >
+                <div className="flex items-center gap-3 flex-1 min-w-0">
+                  <span className="font-sans text-sm font-semibold text-ink">{subject}</span>
+                  <div className="flex-1 h-1.5 rounded-full bg-[#EEF1F0] overflow-hidden max-w-[200px]">
+                    <div className="h-full rounded-full" style={{ width: `${pct}%`, background: color }} />
+                  </div>
+                  <span className="font-mono text-xs text-muted shrink-0">{doneCount}/{list.length}</span>
+                </div>
+                <ChevronDown size={16} className={`text-muted shrink-0 transition-transform ${isOpen ? "rotate-180" : ""}`} />
+              </button>
+              {isOpen && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 mt-3.5 pt-3.5 border-t border-grid">
+                  {list.map((topic) => {
+                    const status = statusMap[`${examType}|${subject}|${topic}`] || "bekliyor";
+                    const meta = STATUS_META[status];
+                    const Icon = meta.icon;
+                    return (
+                      <button
+                        key={topic}
+                        onClick={() => cycle(subject, topic)}
+                        disabled={!canEdit}
+                        className="flex items-center gap-2 text-left px-2 py-1.5 rounded-md hover:bg-[#F4F6F5] disabled:cursor-default"
+                      >
+                        <Icon size={15} color={meta.color} className="shrink-0" />
+                        <span className={`font-sans text-[13px] ${status === "tamam" ? "text-muted line-through" : "text-ink"}`}>
+                          {topic}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
