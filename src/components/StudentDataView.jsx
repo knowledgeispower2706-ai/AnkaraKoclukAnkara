@@ -10,6 +10,7 @@ import {
 } from "recharts";
 import { supabase } from "../supabaseClient";
 import Avatar from "./Avatar.jsx";
+import { CURRICULUM } from "../curriculum.js";
 
 const DEFAULT_SUBJECTS = [
   "Türkçe", "Matematik",
@@ -382,12 +383,25 @@ function Genel({ sessions, exams, goals, notes }) {
 // ---------- Çalışma ----------
 function Calisma({ sessions, canEdit, studentId, onChange }) {
   const [date, setDate] = useState(todayISO());
+  const [examType, setExamType] = useState("TYT");
   const [subject, setSubject] = useState(DEFAULT_SUBJECTS[0]);
   const [topic, setTopic] = useState("");
   const [resource, setResource] = useState("");
   const [minutes, setMinutes] = useState("");
   const [efficiency, setEfficiency] = useState(3);
   const [note, setNote] = useState("");
+
+  // Müfredat (TYT/AYT) verisinden ders ve konu seçeneklerini türet.
+  // Kullanıcı yine de serbest metin girebilir (datalist), ama artık
+  // hazır konu başlıkları öneri olarak çıkıyor.
+  const subjectOptions = useMemo(() => {
+    const curriculumSubjects = Object.keys(CURRICULUM[examType] || {});
+    return [...new Set([...curriculumSubjects, ...DEFAULT_SUBJECTS])];
+  }, [examType]);
+
+  const topicOptions = useMemo(() => {
+    return (CURRICULUM[examType] && CURRICULUM[examType][subject]) || [];
+  }, [examType, subject]);
 
   const bySubject = useMemo(() => {
     const map = {};
@@ -425,12 +439,23 @@ function Calisma({ sessions, canEdit, studentId, onChange }) {
             <div className="flex gap-3">
               <div className="flex-1"><label className={label}>Tarih</label><input type="date" className={input} value={date} onChange={(e) => setDate(e.target.value)} /></div>
               <div className="flex-1">
-                <label className={label}>Ders</label>
-                <input list="subjects" className={input} value={subject} onChange={(e) => setSubject(e.target.value)} />
-                <datalist id="subjects">{DEFAULT_SUBJECTS.map((s) => <option key={s} value={s} />)}</datalist>
+                <label className={label}>Sınav Türü</label>
+                <select className={input} value={examType} onChange={(e) => setExamType(e.target.value)}>
+                  <option value="TYT">TYT</option>
+                  <option value="AYT">AYT</option>
+                </select>
               </div>
             </div>
-            <div><label className={label}>Konu</label><input className={input} value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="Örn: Türev — Zincir Kuralı" /></div>
+            <div>
+              <label className={label}>Ders</label>
+              <input list="subjects" className={input} value={subject} onChange={(e) => setSubject(e.target.value)} />
+              <datalist id="subjects">{subjectOptions.map((s) => <option key={s} value={s} />)}</datalist>
+            </div>
+            <div>
+              <label className={label}>Konu</label>
+              <input list="topics" className={input} value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="Örn: Türev — Zincir Kuralı" />
+              <datalist id="topics">{topicOptions.map((t) => <option key={t} value={t} />)}</datalist>
+            </div>
             <div><label className={label}>Kaynak</label><input className={input} value={resource} onChange={(e) => setResource(e.target.value)} placeholder="Örn: 3D Yayınları Soru Bankası" /></div>
             <div><label className={label}>Süre (dakika)</label><input type="number" className={input} value={minutes} onChange={(e) => setMinutes(e.target.value)} /></div>
             <div>
@@ -496,6 +521,14 @@ function Denemeler({ exams, canEdit, studentId, onChange }) {
   const [bos, setBos] = useState("");
   const net = dogru !== "" || yanlis !== "" ? Math.round((Number(dogru || 0) - Number(yanlis || 0) / 4) * 100) / 100 : "";
 
+  // TYT/AYT seçiliyse müfredattaki dersleri öneri olarak sun; "Branş" için sabit listeye düş.
+  const subjectOptions = useMemo(() => {
+    const curriculumSubjects = Object.keys(CURRICULUM[examType] || {});
+    return curriculumSubjects.length
+      ? [...new Set([...curriculumSubjects, ...DEFAULT_SUBJECTS])]
+      : DEFAULT_SUBJECTS;
+  }, [examType]);
+
   const subjectKeys = useMemo(() => [...new Set(exams.map((e) => e.subject))], [exams]);
   const trend = useMemo(() => {
     const names = [...new Set(exams.map((e) => e.exam_name))];
@@ -554,7 +587,7 @@ function Denemeler({ exams, canEdit, studentId, onChange }) {
             <div>
               <label className={label}>Ders</label>
               <input list="subjects2" className={input} value={subject} onChange={(e) => setSubject(e.target.value)} />
-              <datalist id="subjects2">{DEFAULT_SUBJECTS.map((s) => <option key={s} value={s} />)}</datalist>
+              <datalist id="subjects2">{subjectOptions.map((s) => <option key={s} value={s} />)}</datalist>
             </div>
             <div className="flex gap-2">
               <div className="flex-1"><label className={label}>Doğru</label><input type="number" className={input} value={dogru} onChange={(e) => setDogru(e.target.value)} /></div>
