@@ -543,12 +543,22 @@ function Denemeler({ exams, canEdit, studentId, onChange }) {
   }, [exams, subjectKeys]);
 
   const byType = useMemo(() => {
-    const map = {};
+    // Aynı tarih + aynı deneme adına farklı dersler için ayrı satırlar
+    // girilebiliyor; bunların hepsi TEK bir deneme sayılmalı, ders sayısı
+    // kadar deneme sayılmamalı. Önce tür+tarih+isim bazında grupla,
+    // sonra o denemenin derslerdeki netlerini topla.
+    const perExam = {};
     exams.forEach((e) => {
       const t = e.exam_type || "TYT";
-      if (!map[t]) map[t] = { count: 0, totalNet: 0 };
-      map[t].count += 1;
-      map[t].totalNet += Number(e.net);
+      const examKey = `${t}|${e.date}|${e.exam_name}`;
+      if (!perExam[examKey]) perExam[examKey] = { type: t, net: 0 };
+      perExam[examKey].net += Number(e.net);
+    });
+    const map = {};
+    Object.values(perExam).forEach(({ type, net }) => {
+      if (!map[type]) map[type] = { count: 0, totalNet: 0 };
+      map[type].count += 1;
+      map[type].totalNet += net;
     });
     return map;
   }, [exams]);
