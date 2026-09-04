@@ -1039,6 +1039,17 @@ function Karne({ studentName, hedef, sessions, exams, goals, topics }) {
   const totalMinutes = filteredSessions.reduce((a, s) => a + s.minutes, 0);
   const totalSessionCount = filteredSessions.length;
 
+  // Çalışma zamanı grafiği — seçilen aralıktaki her gün için toplam dakika
+  const studyChartData = useMemo(() => {
+    const map = {};
+    filteredSessions.forEach((s) => {
+      map[s.date] = (map[s.date] || 0) + s.minutes;
+    });
+    return Object.entries(map)
+      .sort(([a], [b]) => (a < b ? -1 : 1))
+      .map(([date, dakika]) => ({ date: fmtDate(date), dakika }));
+  }, [filteredSessions]);
+
   const examGroups = useMemo(() => {
     const byExam = {};
     filteredExams.forEach((e) => {
@@ -1049,12 +1060,28 @@ function Karne({ studentName, hedef, sessions, exams, goals, topics }) {
     return Object.values(byExam).sort((a, b) => (a.date < b.date ? 1 : -1));
   }, [filteredExams]);
 
+  // Denemelerle ilgili net gelişim grafiği — kronolojik sırada
+  const netChartData = useMemo(() => {
+    return [...examGroups]
+      .sort((a, b) => (a.date < b.date ? -1 : 1))
+      .map((e) => ({ label: e.name, net: Math.round(e.net * 100) / 100 }));
+  }, [examGroups]);
+
   const avgNet = examGroups.length
     ? Math.round((examGroups.reduce((a, e) => a + e.net, 0) / examGroups.length) * 100) / 100
     : 0;
 
   const completedTopics = topics.filter((t) => t.status === "tamam").length;
   const activeGoals = goals.filter((g) => !g.done).length;
+
+  // Müfredatın ne kadarı yapılmış — TYT/AYT bazında tamamlanma yüzdesi
+  const curriculumChartData = useMemo(() => {
+    return Object.keys(CURRICULUM).map((examType) => {
+      const total = Object.values(CURRICULUM[examType]).reduce((a, l) => a + l.length, 0);
+      const done = topics.filter((t) => t.exam_type === examType && t.status === "tamam").length;
+      return { tur: examType, tamamlanan: done, kalan: Math.max(total - done, 0), yuzde: total ? Math.round((done / total) * 100) : 0 };
+    });
+  }, [topics]);
 
   const summaryText = `${studentName} — Veli Karnesi (${preset})\n` +
     `Toplam Çalışma: ${Math.round((totalMinutes / 60) * 10) / 10} saat (${totalSessionCount} kayıt)\n` +
@@ -1117,6 +1144,64 @@ function Karne({ studentName, hedef, sessions, exams, goals, topics }) {
           <KarneStat label="Ortalama Net" value={avgNet} />
           <KarneStat label="Tamamlanan Konu" value={completedTopics} />
           <KarneStat label="Aktif Hedef" value={activeGoals} />
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-6">
+          <div className="border border-grid rounded-lg p-4">
+            <h4 className="font-display text-sm font-semibold text-ink mb-0.5">Çalışma Zamanı</h4>
+            <p className="font-sans text-xs text-muted mb-3">Seçilen aralıkta günlük çalışma süresi (dk)</p>
+            {studyChartData.length === 0 ? <Empty text="Bu aralıkta çalışma kaydı yok." /> : (
+              <ResponsiveContainer width="100%" height={200}>
+                <BarChart data={studyChartData}>
+                  <CartesianGrid {...gridProps} />
+                  <XAxis dataKey="date" tick={chartTick} axisLine={{ stroke: "#E4E9E7" }} tickLine={false} />
+                  <YAxis tick={chartTick} axisLine={false} tickLine={false} width={30} />
+                  <Tooltip content={<ChartTooltip suffix=" dk" />} />
+                  <Bar dataKey="dakika" name="Dakika" fill="#1E6E63" radius={[5, 5, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+
+          <div className="border border-grid rounded-lg p-4">
+            <h4 className="font-display text-sm font-semibold text-ink mb-0.5">Denemelerle İlgili Çalışmalar</h4>
+            <p className="font-sans text-xs text-muted mb-3">Deneme net gelişimi — ortalama {avgNet}</p>
+            {netChartData.length === 0 ? <Empty text="Bu aralıkta deneme sonucu yok." /> : (
+              <ResponsiveContainer width="100%" height={200}>
+                <LineChart data={netChartData}>
+                  <CartesianGrid {...gridProps} />
+                  <XAxis dataKey="label" tick={chartTick} axisLine={{ stroke: "#E4E9E7" }} tickLine={false} />
+                  <YAxis tick={chartTick} axisLine={false} tickLine={false} width={30} />
+                  <Tooltip content={<ChartTooltip />} />
+                  <ReferenceLine y={avgNet} stroke="#C1483C" strokeDasharray="4 4" strokeWidth={1.5} />
+                  <Line type="monotone" dataKey="net" name="Net" stroke="#E3A21A" strokeWidth={2.5} dot={{ r: 4, fill: "#E3A21A", strokeWidth: 0 }} activeDot={{ r: 6 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+
+          <div className="border border-grid rounded-lg p-4 lg:col-span-2">
+            <h4 className="font-display text-sm font-semibold text-ink mb-0.5">Müfredatın Ne Kadarı Yapılmış</h4>
+            <p className="font-sans text-xs text-muted mb-3">TYT ve AYT kapsamındaki konuların tamamlanma durumu (tüm zamanlar)</p>
+            <ResponsiveContainer width="100%" height={160}>
+              <BarChart data={curriculumChartData} layout="vertical" barSize={26}>
+                <CartesianGrid {...gridProps} horizontal={false} />
+                <XAxis type="number" tick={chartTick} axisLine={false} tickLine={false} />
+                <YAxis type="category" dataKey="tur" width={40} tick={{ fontSize: 12, fill: "#14213D", fontWeight: 600 }} axisLine={false} tickLine={false} />
+                <Tooltip content={<ChartTooltip suffix=" konu" />} />
+                <Legend wrapperStyle={{ fontSize: 11.5, fontFamily: "inherit" }} iconType="circle" iconSize={8} />
+                <Bar dataKey="tamamlanan" name="Tamamlanan" stackId="a" fill="#1E6E63" radius={[5, 0, 0, 5]} />
+                <Bar dataKey="kalan" name="Kalan" stackId="a" fill="#EEF1F0" radius={[0, 5, 5, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+            <div className="flex gap-6 mt-2">
+              {curriculumChartData.map((c) => (
+                <span key={c.tur} className="font-mono text-xs text-muted">
+                  {c.tur}: <b className="text-ink">%{c.yuzde}</b>
+                </span>
+              ))}
+            </div>
+          </div>
         </div>
 
         <h4 className="font-display text-sm font-semibold text-ink mb-2.5">Son Denemeler</h4>
