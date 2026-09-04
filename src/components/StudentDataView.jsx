@@ -134,7 +134,7 @@ export default function StudentDataView({ studentId, studentName, hedef, canEdit
     { key: "mufredat", label: "Müfredat", icon: ListChecks },
     { key: "hedefler", label: "Hedefler", icon: Target },
     { key: "notlar", label: "Notlar", icon: MessageSquare },
-    ...(canEdit ? [{ key: "karne", label: "Veli Karnesi", icon: FileText }] : []),
+    ...(!canEdit ? [{ key: "karne", label: "Veli Karnesi", icon: FileText }] : []),
   ];
 
   return (
