@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import {
   Plus, X, Check, Clock, Award, Target, TrendingUp, BookOpen, MessageSquare,
   Smile, Meh, Frown, Star, Flame, ListChecks, ChevronDown, Circle, CircleDot, CircleCheck,
-  Printer, Mail, MessageCircle, FileText,
+  Printer, Mail, MessageCircle, FileText, CalendarDays,
 } from "lucide-react";
 import {
   BarChart, Bar, LineChart, Line, AreaChart, Area, RadarChart, Radar,
@@ -132,6 +132,7 @@ export default function StudentDataView({ studentId, studentName, hedef, canEdit
     { key: "calisma", label: "Çalışma", icon: BookOpen },
     { key: "denemeler", label: "Denemeler", icon: Award },
     { key: "mufredat", label: "Müfredat", icon: ListChecks },
+    { key: "program", label: "Program", icon: CalendarDays },
     { key: "hedefler", label: "Hedefler", icon: Target },
     { key: "notlar", label: "Notlar", icon: MessageSquare },
     ...(!canEdit ? [{ key: "karne", label: "Veli Karnesi", icon: FileText }] : []),
@@ -199,6 +200,9 @@ export default function StudentDataView({ studentId, studentName, hedef, canEdit
             )}
             {tab === "mufredat" && (
               <Mufredat topics={topics} canEdit={canEdit} studentId={studentId} onChange={load} />
+            )}
+            {tab === "program" && (
+              <Program sessions={sessions} exams={exams} topics={topics} studentId={studentId} onChange={load} />
             )}
             {tab === "hedefler" && (
               <Hedefler goals={goals} canEdit={canEdit} studentId={studentId} onChange={load} />
@@ -1003,6 +1007,158 @@ function Mufredat({ topics, canEdit, studentId, onChange }) {
           );
         })}
       </div>
+    </div>
+  );
+}
+
+// ---------- Program (haftalık program önerisi) ----------
+function Program({ sessions, exams, topics, studentId, onChange }) {
+  const [added, setAdded] = useState(false);
+
+  const subjectStats = useMemo(() => {
+    const rows = [];
+    Object.keys(CURRICULUM).forEach((examType) => {
+      Object.keys(CURRICULUM[examType]).forEach((subject) => {
+        const topicList = CURRICULUM[examType][subject];
+        const doneCount = topics.filter((t) => t.exam_type === examType && t.subject === subject && t.status === "tamam").length;
+        const curriculumPct = topicList.length ? doneCount / topicList.length : 0;
+
+        const subjectExams = exams.filter((e) => e.subject === subject);
+        const avgNet = subjectExams.length
+          ? subjectExams.reduce((a, e) => a + Number(e.net), 0) / subjectExams.length
+          : null;
+
+        const subjectMinutes = sessions.filter((s) => s.subject === subject).reduce((a, s) => a + s.minutes, 0);
+
+        rows.push({ subject, examType, topicList, doneCount, curriculumPct, avgNet, subjectMinutes });
+      });
+    });
+    return rows;
+  }, [topics, exams, sessions]);
+
+  const focusPlan = useMemo(() => {
+    if (subjectStats.length === 0) return [];
+    const maxMinutes = Math.max(...subjectStats.map((s) => s.subjectMinutes), 1);
+    const netsPresent = subjectStats.filter((s) => s.avgNet != null).map((s) => s.avgNet);
+    const maxNet = netsPresent.length ? Math.max(...netsPresent) : 1;
+    const minNet = netsPresent.length ? Math.min(...netsPresent) : 0;
+
+    const scored = subjectStats.map((s) => {
+      const curriculumWeak = 1 - s.curriculumPct;
+      const netWeak = s.avgNet == null ? 0.5 : (maxNet === minNet ? 0.5 : 1 - (s.avgNet - minNet) / (maxNet - minNet));
+      const timeWeak = 1 - s.subjectMinutes / maxMinutes;
+      const score = curriculumWeak * 0.45 + netWeak * 0.35 + timeWeak * 0.2;
+      return { ...s, score };
+    });
+
+    return scored.sort((a, b) => b.score - a.score).slice(0, 5);
+  }, [subjectStats]);
+
+  const weeklyPlan = useMemo(() => {
+    if (focusPlan.length === 0) return [];
+    const today = new Date();
+    return Array.from({ length: 7 }).map((_, i) => {
+      const d = new Date(today);
+      d.setDate(d.getDate() + i);
+      const subj = focusPlan[i % focusPlan.length];
+      const doneSet = new Set(
+        topics.filter((t) => t.exam_type === subj.examType && t.subject === subj.subject && t.status === "tamam").map((t) => t.topic)
+      );
+      const nextTopic = subj.topicList.find((t) => !doneSet.has(t)) || subj.topicList[0];
+      return {
+        dateISO: d.toISOString().slice(0, 10),
+        dayLabel: d.toLocaleDateString("tr-TR", { weekday: "long" }),
+        dateLabel: fmtDate(d.toISOString().slice(0, 10)),
+        subject: subj.subject,
+        examType: subj.examType,
+        topic: nextTopic,
+        minutes: 60,
+        priority: subj.score > 0.6,
+      };
+    });
+  }, [focusPlan, topics]);
+
+  const addAsGoals = async () => {
+    if (weeklyPlan.length === 0) return;
+    const rows = weeklyPlan.map((p) => ({
+      student_id: studentId,
+      title: `${p.subject}: ${p.topic}`,
+      subject: p.subject,
+      priority: p.priority ? "yüksek" : "orta",
+      due: p.dateISO,
+    }));
+    await supabase.from("goals").insert(rows);
+    setAdded(true);
+    onChange();
+  };
+
+  return (
+    <div>
+      <div className={card}>
+        <div className="flex items-center justify-between flex-wrap gap-3 mb-1">
+          <div>
+            <h3 className={cardTitle}>Haftalık Program Önerisi</h3>
+            <p className={cardSub}>Müfredat ilerlemesi, deneme netleri ve çalışma sürelerine göre otomatik oluşturuldu</p>
+          </div>
+          {weeklyPlan.length > 0 && (
+            <button onClick={addAsGoals} className={primaryBtn}>
+              <Plus size={14} /> Bu Programı Hedef Olarak Ekle
+            </button>
+          )}
+        </div>
+        {added && (
+          <p className="font-sans text-xs text-teal mt-2">Program, Hedefler listesine eklendi.</p>
+        )}
+
+        {weeklyPlan.length === 0 ? (
+          <Empty text="Öneri oluşturmak için önce biraz çalışma, deneme ya da müfredat verisi girilmesi gerekiyor." />
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-4">
+            {weeklyPlan.map((p, i) => (
+              <div key={i} className="border border-grid rounded-lg p-3.5">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="font-sans text-xs font-semibold text-ink">{p.dayLabel}</span>
+                  <span className="font-mono text-[10px] text-muted">{p.dateLabel}</span>
+                </div>
+                {p.priority && (
+                  <span className="inline-block font-sans text-[10px] px-1.5 py-0.5 rounded-full mb-1.5" style={{ background: "rgba(193,72,60,0.12)", color: "#C1483C" }}>
+                    Öncelikli
+                  </span>
+                )}
+                <div className="font-sans text-sm font-semibold text-ink">{p.subject}</div>
+                <div className="font-mono text-[10px] text-muted mb-1.5">{p.examType}</div>
+                <div className="font-sans text-[13px] text-ink leading-snug">{p.topic}</div>
+                <div className="flex items-center gap-1 mt-2">
+                  <Clock size={11} className="text-muted" />
+                  <span className="font-mono text-[11px] text-muted">{p.minutes} dk önerilir</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {focusPlan.length > 0 && (
+        <div className={`${card} mt-5`}>
+          <h3 className={cardTitle}>Bu Hafta Neden Bu Dersler?</h3>
+          <p className={cardSub}>En düşük ilerleme/net/çalışma süresine sahip dersler önceliklendirildi</p>
+          <div className="flex flex-col gap-2">
+            {focusPlan.map((s) => (
+              <div key={`${s.examType}-${s.subject}`} className="flex items-center justify-between px-3 py-2 rounded-md border border-grid">
+                <div>
+                  <span className="font-sans text-sm font-semibold text-ink">{s.subject}</span>
+                  <span className="font-mono text-[10px] text-muted ml-2">{s.examType}</span>
+                </div>
+                <div className="flex gap-3 font-mono text-[11px] text-muted">
+                  <span>Müfredat: %{Math.round(s.curriculumPct * 100)}</span>
+                  <span>Net: {s.avgNet != null ? Math.round(s.avgNet * 10) / 10 : "—"}</span>
+                  <span>{Math.round((s.subjectMinutes / 60) * 10) / 10} sa çalışıldı</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
